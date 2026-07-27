@@ -8,6 +8,8 @@
   <script src="https://cdn.tailwindcss.com"></script>
   <!-- Chart.js CDN -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <!-- PapaParse CDN para leer CSV remoto sin bloqueo -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.2/papaparse.min.js"></script>
   <!-- Lucide Icons -->
   <script src="https://unpkg.com/lucide@latest"></script>
   <style>
@@ -24,7 +26,7 @@
         <h1 class="text-2xl font-bold text-white flex items-center gap-3">
           <i data-lucide="users" class="text-teal-400"></i> Dashboard Postventa & Estado de Clientes
         </h1>
-        <p class="text-slate-400 text-sm mt-1">Conexión Directa a Google Sheets | Monitoreo Operativo & Recaudación</p>
+        <p class="text-slate-400 text-sm mt-1">Sincronizado en tiempo real con Google Sheets</p>
       </div>
       <div class="flex items-center gap-3">
         <span id="status-badge" class="inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-semibold bg-amber-500/10 text-amber-400 border border-amber-500/20">
@@ -98,9 +100,9 @@
   </div>
 
   <script>
-    // Configuración directa de Google Sheets API
-    const SHEET_ID = '1vT2s1zFt1P0n6Y6hrhJUri9RyD1wosD3j4qtzHEDQMbpter8ktJsCuvQ0wI6jqn_Q';
-    const GID = '610964846';
+    // Enlace con proxy CORS universal para Google Sheets Publicado
+    const RAW_CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vT2s1zFt1P0n6Y6hrhJUri9RyD1wosD3j4qtzHEDQMbpter8ktJsCuvQ0wI6jqn_Q/pub?gid=610964846&single=true&output=csv';
+    const PROXY_URL = 'https://api.allorigins.win/raw?url=' + encodeURIComponent(RAW_CSV_URL);
 
     let globalData = [];
     let globalHeaders = [];
@@ -110,50 +112,33 @@
     function loadSheetData() {
       const badge = document.getElementById('status-badge');
       badge.className = 'inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-semibold bg-amber-500/10 text-amber-400 border border-amber-500/20';
-      badge.innerHTML = '<span class="w-2 h-2 rounded-full bg-amber-400 animate-pulse"></span> Conectando...';
+      badge.innerHTML = '<span class="w-2 h-2 rounded-full bg-amber-400 animate-pulse"></span> Cargando datos...';
 
-      const oldScript = document.getElementById('gviz-script');
-      if (oldScript) oldScript.remove();
+      Papa.parse(PROXY_URL, {
+        download: true,
+        header: true,
+        skipEmptyLines: true,
+        complete: function(results) {
+          if (results && results.data && results.data.length > 0) {
+            globalData = results.data;
+            globalHeaders = Object.keys(results.data[0]);
 
-      // Carga remota segura sin bloqueos CORS
-      const script = document.createElement('script');
-      script.id = 'gviz-script';
-      script.src = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?gid=${GID}&tqx=responseHandler:handleGvizData`;
-      
-      script.onerror = function() {
-        badge.className = 'inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-semibold bg-rose-500/10 text-rose-400 border border-rose-500/20';
-        badge.innerHTML = '<span class="w-2 h-2 rounded-full bg-rose-400"></span> Error de conexión';
-      };
+            badge.className = 'inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20';
+            badge.innerHTML = '<span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span> Sincronizado';
 
-      document.body.appendChild(script);
-    }
-
-    window.handleGvizData = function(response) {
-      const badge = document.getElementById('status-badge');
-
-      if (!response || !response.table) {
-        badge.className = 'inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-semibold bg-rose-500/10 text-rose-400 border border-rose-500/20';
-        badge.innerHTML = '<span class="w-2 h-2 rounded-full bg-rose-400"></span> Formato Inválido';
-        return;
-      }
-
-      const table = response.table;
-      globalHeaders = table.cols.map(col => col.label || 'Columna');
-      
-      globalData = table.rows.map(row => {
-        let obj = {};
-        row.c.forEach((cell, idx) => {
-          const header = globalHeaders[idx] || `Col_${idx}`;
-          obj[header] = cell ? (cell.v !== null ? cell.v : (cell.f ? cell.f : '')) : '';
-        });
-        return obj;
+            renderDashboard(globalData, globalHeaders);
+          } else {
+            badge.className = 'inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-semibold bg-rose-500/10 text-rose-400 border border-rose-500/20';
+            badge.innerHTML = '<span class="w-2 h-2 rounded-full bg-rose-400"></span> Datos vacíos';
+          }
+        },
+        error: function(err) {
+          console.error("Error al obtener CSV con proxy:", err);
+          badge.className = 'inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-semibold bg-rose-500/10 text-rose-400 border border-rose-500/20';
+          badge.innerHTML = '<span class="w-2 h-2 rounded-full bg-rose-400"></span> Error de conexión';
+        }
       });
-
-      badge.className = 'inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20';
-      badge.innerHTML = '<span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span> Sincronizado';
-
-      renderDashboard(globalData, globalHeaders);
-    };
+    }
 
     function renderDashboard(data, headers) {
       if (!data || data.length === 0) return;
