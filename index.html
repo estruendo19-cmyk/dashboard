@@ -8,6 +8,8 @@
   <script src="https://cdn.tailwindcss.com"></script>
   <!-- Chart.js CDN -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <!-- PapaParse CDN -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.2/papaparse.min.js"></script>
   <!-- Lucide Icons -->
   <script src="https://unpkg.com/lucide@latest"></script>
   <style>
@@ -24,11 +26,11 @@
         <h1 class="text-2xl font-bold text-white flex items-center gap-3">
           <i data-lucide="users" class="text-teal-400"></i> Dashboard Postventa & Estado de Clientes
         </h1>
-        <p class="text-slate-400 text-sm mt-1">Conexión Directa a Google Sheets Public</p>
+        <p class="text-slate-400 text-sm mt-1">Conexión Multicanal a Google Sheets</p>
       </div>
       <div class="flex items-center gap-3">
         <span id="status-badge" class="inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-semibold bg-amber-500/10 text-amber-400 border border-amber-500/20">
-          <span class="w-2 h-2 rounded-full bg-amber-400 animate-pulse"></span> Cargando datos...
+          <span class="w-2 h-2 rounded-full bg-amber-400 animate-pulse"></span> Conectando...
         </span>
         <button onclick="loadSheetData()" class="flex items-center gap-2 bg-teal-600 hover:bg-teal-500 text-white px-4 py-2 rounded-xl text-sm font-semibold transition-all shadow-lg shadow-teal-600/30">
           <i data-lucide="refresh-cw" class="w-4 h-4"></i> Recargar Data
@@ -98,59 +100,83 @@
   </div>
 
   <script>
-    // ID Directo extraído de tu hoja pública
     const SHEET_ID = '1vT2s1zFt1P0n6Y6hrhJUri9RyD1wosD3j4qtzHEDQMbpter8ktJsCuvQ0wI6jqn_Q';
     const GID = '610964846';
+    const CSV_URL = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/export?format=csv&gid=${GID}`;
 
     let globalData = [];
     let globalHeaders = [];
     let subscribersChartInstance = null;
     let paymentChartInstance = null;
 
-    function loadSheetData() {
+    function setBadge(type, text) {
       const badge = document.getElementById('status-badge');
-      badge.className = 'inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-semibold bg-amber-500/10 text-amber-400 border border-amber-500/20';
-      badge.innerHTML = '<span class="w-2 h-2 rounded-full bg-amber-400 animate-pulse"></span> Conectando a Google Sheets...';
+      if (type === 'loading') {
+        badge.className = 'inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-semibold bg-amber-500/10 text-amber-400 border border-amber-500/20';
+        badge.innerHTML = `<span class="w-2 h-2 rounded-full bg-amber-400 animate-pulse"></span> ${text}`;
+      } else if (type === 'success') {
+        badge.className = 'inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20';
+        badge.innerHTML = `<span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span> ${text}`;
+      } else {
+        badge.className = 'inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-semibold bg-rose-500/10 text-rose-400 border border-rose-500/20';
+        badge.innerHTML = `<span class="w-2 h-2 rounded-full bg-rose-400"></span> ${text}`;
+      }
+    }
 
+    function loadSheetData() {
+      setBadge('loading', 'Conectando a Google Sheets...');
+
+      // Intento 1: API GViz Nativa
       const oldScript = document.getElementById('gviz-script');
       if (oldScript) oldScript.remove();
 
-      // Callback nativo JSONP de Google Visualization API
       window.handleGvizResponse = function(response) {
-        if (!response || !response.table) {
-          badge.className = 'inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-semibold bg-rose-500/10 text-rose-400 border border-rose-500/20';
-          badge.innerHTML = '<span class="w-2 h-2 rounded-full bg-rose-400"></span> Formato Inválido';
-          return;
-        }
-
-        const table = response.table;
-        globalHeaders = table.cols.map(col => col.label || 'Columna');
-        
-        globalData = table.rows.map(row => {
-          let obj = {};
-          row.c.forEach((cell, idx) => {
-            const header = globalHeaders[idx] || `Col_${idx}`;
-            obj[header] = cell ? (cell.v !== null ? cell.v : (cell.f ? cell.f : '')) : '';
+        if (response && response.table) {
+          const table = response.table;
+          globalHeaders = table.cols.map(col => col.label || 'Columna');
+          globalData = table.rows.map(row => {
+            let obj = {};
+            row.c.forEach((cell, idx) => {
+              const header = globalHeaders[idx] || `Col_${idx}`;
+              obj[header] = cell ? (cell.v !== null ? cell.v : (cell.f ? cell.f : '')) : '';
+            });
+            return obj;
           });
-          return obj;
-        });
-
-        badge.className = 'inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20';
-        badge.innerHTML = '<span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span> Sincronizado';
-
-        renderDashboard(globalData, globalHeaders);
+          setBadge('success', 'Sincronizado');
+          renderDashboard(globalData, globalHeaders);
+        } else {
+          tryFallbackCSV();
+        }
       };
 
       const script = document.createElement('script');
       script.id = 'gviz-script';
       script.src = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?gid=${GID}&tqx=responseHandler:handleGvizResponse`;
-      
-      script.onerror = function() {
-        badge.className = 'inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-semibold bg-rose-500/10 text-rose-400 border border-rose-500/20';
-        badge.innerHTML = '<span class="w-2 h-2 rounded-full bg-rose-400"></span> Error de conexión';
-      };
-
+      script.onerror = tryFallbackCSV;
       document.body.appendChild(script);
+    }
+
+    // Intento 2: Carga mediante PapaParse si la API de GViz falla
+    function tryFallbackCSV() {
+      setBadge('loading', 'Probando conexión alternativa...');
+      Papa.parse(CSV_URL, {
+        download: true,
+        header: true,
+        skipEmptyLines: true,
+        complete: function(results) {
+          if (results && results.data && results.data.length > 0) {
+            globalData = results.data;
+            globalHeaders = Object.keys(results.data[0]);
+            setBadge('success', 'Sincronizado (Modo Directo)');
+            renderDashboard(globalData, globalHeaders);
+          } else {
+            setBadge('error', 'Error de acceso a datos');
+          }
+        },
+        error: function() {
+          setBadge('error', 'Error de conexión general');
+        }
+      });
     }
 
     function renderDashboard(data, headers) {
