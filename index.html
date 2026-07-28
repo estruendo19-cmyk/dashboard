@@ -26,7 +26,7 @@
         <h1 class="text-2xl font-bold text-white flex items-center gap-3">
           <i data-lucide="users" class="text-teal-400"></i> Dashboard Postventa & Estado de Clientes
         </h1>
-        <p class="text-slate-400 text-sm mt-1">Conexión Multicanal a Google Sheets</p>
+        <p class="text-slate-400 text-sm mt-1">Sincronizado en tiempo real con Google Sheets</p>
       </div>
       <div class="flex items-center gap-3">
         <span id="status-badge" class="inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-semibold bg-amber-500/10 text-amber-400 border border-amber-500/20">
@@ -100,9 +100,11 @@
   </div>
 
   <script>
-    const SHEET_ID = '1vT2s1zFt1P0n6Y6hrhJUri9RyD1wosD3j4qtzHEDQMbpter8ktJsCuvQ0wI6jqn_Q';
-    const GID = '610964846';
-    const CSV_URL = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/export?format=csv&gid=${GID}`;
+    // URL CSV Publicada
+    const ORIGINAL_CSV = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vT2s1zFt1P0n6Y6hrhJUri9RyD1wosD3j4qtzHEDQMbpter8ktJsCuvQ0wI6jqn_Q/pub?gid=610964846&single=true&output=csv';
+    
+    // Proxy seguro que desbloquea CORS
+    const PROXY_URL = 'https://corsproxy.io/?' + encodeURIComponent(ORIGINAL_CSV);
 
     let globalData = [];
     let globalHeaders = [];
@@ -124,42 +126,9 @@
     }
 
     function loadSheetData() {
-      setBadge('loading', 'Conectando a Google Sheets...');
+      setBadge('loading', 'Cargando datos...');
 
-      // Intento 1: API GViz Nativa
-      const oldScript = document.getElementById('gviz-script');
-      if (oldScript) oldScript.remove();
-
-      window.handleGvizResponse = function(response) {
-        if (response && response.table) {
-          const table = response.table;
-          globalHeaders = table.cols.map(col => col.label || 'Columna');
-          globalData = table.rows.map(row => {
-            let obj = {};
-            row.c.forEach((cell, idx) => {
-              const header = globalHeaders[idx] || `Col_${idx}`;
-              obj[header] = cell ? (cell.v !== null ? cell.v : (cell.f ? cell.f : '')) : '';
-            });
-            return obj;
-          });
-          setBadge('success', 'Sincronizado');
-          renderDashboard(globalData, globalHeaders);
-        } else {
-          tryFallbackCSV();
-        }
-      };
-
-      const script = document.createElement('script');
-      script.id = 'gviz-script';
-      script.src = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?gid=${GID}&tqx=responseHandler:handleGvizResponse`;
-      script.onerror = tryFallbackCSV;
-      document.body.appendChild(script);
-    }
-
-    // Intento 2: Carga mediante PapaParse si la API de GViz falla
-    function tryFallbackCSV() {
-      setBadge('loading', 'Probando conexión alternativa...');
-      Papa.parse(CSV_URL, {
+      Papa.parse(PROXY_URL, {
         download: true,
         header: true,
         skipEmptyLines: true,
@@ -167,14 +136,15 @@
           if (results && results.data && results.data.length > 0) {
             globalData = results.data;
             globalHeaders = Object.keys(results.data[0]);
-            setBadge('success', 'Sincronizado (Modo Directo)');
+            setBadge('success', 'Sincronizado');
             renderDashboard(globalData, globalHeaders);
           } else {
-            setBadge('error', 'Error de acceso a datos');
+            setBadge('error', 'CSV Vacío');
           }
         },
-        error: function() {
-          setBadge('error', 'Error de conexión general');
+        error: function(err) {
+          console.error("Error al descargar mediante proxy:", err);
+          setBadge('error', 'Error de conexión');
         }
       });
     }
